@@ -1,80 +1,79 @@
-// Вы разрабатываете сервис, который обрабатывает изображения.
-// Каждое изображение проходит дорогостоящую обработку, например, наложение подяного знака.
-// Поскольку обработка кажлдого изображения занимает значительное время,
-// необходимо обрабатывать их параллельно, чтобы ускорить процесс.
-// Однако, чтобы избежать излишней нагрузки на систему, вы хотите ограничить количество
-// одновременно работающих горутин.
+// Вы разрабатываете систему для обработки финансовых транзакций.
+// Каждая транзакция проходит несколько этапов обработки:
+// 1. Чтение транзакций из исходных данных.
+// 2. Фильтрация транзакций: убирает транзакции с отрицательными суммами.
+// 3. Конвертация валюты: преобразуем сумму транзакции в доллары.
+// 4. Сохранение результатов: записываем обработанные транзакции в итоговый список.
 
 package main
 
 import (
-	"context"
 	"fmt"
-	"sync"
-	"time"
+	"math/rand"
 )
 
 func main() {
-	const (
-		numWorkers = 5
-		numTasks   = 10
-	)
+	transaction := generaredTransaction(10)
+	filtered := filteredTransaction(transaction)
+	convert := convertTransaction(filtered)
+	saveTransaction(convert)
+}
 
-	taskCh := make(chan Task, numTasks)
-	resCh := make(chan string, numTasks)
+type Transaction struct {
+	ID     int64
+	Amount float64
+}
 
-	var wg sync.WaitGroup
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-	defer cancel()
-
-	for i := 0; i < numWorkers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			RunWorker(ctx, int64(i), taskCh, resCh)
-		}()
-	}
+func generaredTransaction(count int) <-chan Transaction {
+	out := make(chan Transaction, count)
 
 	go func() {
-		for i := 0; i < numTasks; i++ {
-			taskCh <- Task{ID: int64(i), Filename: fmt.Sprintf("File_%d.jpg", i)}
+		for i := 0; i < count; i++ {
+			out <- Transaction{
+				ID:     int64(i),
+				Amount: rand.Float64()*200 - 100,
+			}
 		}
 
-		close(taskCh)
+		close(out)
 	}()
+
+	return out
+}
+
+func filteredTransaction(in <-chan Transaction) chan Transaction {
+	out := make(chan Transaction)
 
 	go func() {
-		wg.Wait()
-		close(resCh)
+		for tr := range in {
+			if tr.Amount >= 0 {
+				out <- tr
+			}
+		}
+
+		close(out)
 	}()
 
-	for res := range resCh {
-		fmt.Println(res)
-	}
-
-	fmt.Println("All tasks are done")
+	return out
 }
 
-type Task struct {
-	ID       int64
-	Filename string
-}
+func convertTransaction(in <-chan Transaction) chan Transaction {
+	out := make(chan Transaction)
 
-func processImage(task Task) string {
-	time.Sleep(1 * time.Second)
-	return fmt.Sprintf("Файл %v обработан (File ID — %d)", task.Filename, task.ID)
-}
-
-func RunWorker(ctx context.Context, id int64, taskCh <-chan Task, resCh chan<- string) {
-	for {
-		select {
-		case <-ctx.Done():
-			fmt.Println("Task canceled for context")
-			return
-		case task := <-taskCh:
-			fmt.Printf("Worker %d started task %s\n", id, task.Filename)
-			resCh <- processImage(task)
-			fmt.Printf("Worker %d finished task %s\n", id, task.Filename)
+	go func() {
+		for tr := range in {
+			tr.Amount *= 0.8
+			out <- tr
 		}
+
+		close(out)
+	}()
+
+	return out
+}
+
+func saveTransaction(in chan Transaction) {
+	for tr := range in {
+		fmt.Printf("Transaction ID: %d Amount: %.2f\n", tr.ID, tr.Amount)
 	}
 }
